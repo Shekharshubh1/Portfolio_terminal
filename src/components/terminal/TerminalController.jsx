@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTypingEffect } from '../../hooks/useTypingEffect'; // Import the hook
 import { fetchGitHubProjects } from '../../services/githubService';
 import { GITHUB_USERNAME } from '../../data/appData';
+import StatusOutput from './StatusOutput';
 
 // A simple helper for creating delays in async functions
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -61,7 +62,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       return () => clearInterval(interval);
     }
   }, [activeLine]);
-  
+
   const processQueue = useCallback(() => {
     if (commandQueue.current.length > 0 && !activeLine) {
       const nextItem = commandQueue.current.shift();
@@ -100,7 +101,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       return;
     }
 
-    const possibleCommands = ['help', 'about', 'projects', 'contact', 'clear', 'ls', 'cat '];
+    const possibleCommands = ['status', 'help', 'about', 'projects', 'contact', 'clear', 'ls', 'cat '];
     const commandMatch = possibleCommands.find(c => c.startsWith(value.toLowerCase()));
 
     if (commandMatch && commandMatch !== value) {
@@ -133,7 +134,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
     setHistoryIndex(-1);
 
     const [base, ...args] = trimmed.split(' ');
-    
+
     switch (base.toLowerCase()) {
       case 'help':
         commandQueue.current.push({ color: 'text-yellow-300', content: `Available commands:\n  help          - Show this help message\n  about         - Show about info\n  projects      - Fetch and list my projects\n  contact       - Show contact details\n  clear         - Clear the terminal\n  ls            - List available files\n  cat <filename> - Open a file` });
@@ -142,6 +143,13 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       case 'ls':
         const fileList = files.map(f => f.name).join('\n');
         commandQueue.current.push({ color: 'text-blue-400', content: `.\n..\n${fileList}`, instant: true });
+        break;
+
+      case 'status':
+        commandQueue.current.push({
+          component: <StatusOutput />,
+          instant: true
+        });
         break;
 
       case 'cat':
@@ -165,7 +173,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       case 'clear':
         setOutput([]);
         break;
-      
+
       case 'projects':
         (async () => {
           commandQueue.current.push({ color: 'text-blue-400', content: 'Connecting to api.github.com...', instant: true });
@@ -183,7 +191,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
             } else {
               commandQueue.current.push({ color: 'text-yellow-300', content: 'No public projects found.' });
             }
-          } catch(err) {
+          } catch (err) {
             commandQueue.current.push({ color: 'text-red-400', content: `Error: Failed to fetch projects. ${err.message}` });
           }
         })();
@@ -225,21 +233,28 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
 
   return (
     <div className="h-full flex flex-col bg-[#1e1e1e]">
-      <div 
-        ref={terminalRef} 
-        className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent" 
+      <div
+        ref={terminalRef}
+        className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent"
         onClick={() => inputRef.current?.focus()}
       >
         <div className="space-y-1">
-          {output.map((item, index) => (
-            <div key={index} className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${item.color || 'text-gray-300'}`}>
-              {item.content}
-            </div>
-          ))}
+          {output.map((item, index) => {
+            // If the item has a component property, render it directly.
+            if (item.component) {
+              return <div key={index}>{item.component}</div>;
+            }
+            // Otherwise, render it as a standard text line.
+            return (
+              <div key={index} className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${item.color || 'text-gray-300'}`}>
+                {item.content}
+              </div>
+            );
+          })}
           {activeLine && <TerminalLine item={activeLine} onComplete={handleLineComplete} />}
         </div>
       </div>
-      
+
       <div className="border-t border-gray-600 p-2 bg-[#1a1a1a]">
         <div className="relative flex items-center font-mono text-sm">
           <span className="text-green-400 mr-2 flex-shrink-0">guest@portfolio:~$</span>
@@ -251,7 +266,7 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
                 <span className="invisible">{command}</span>{suggestion.substring(command.length)}
               </span>
             )}
-            
+
             {isProcessing ? (
               <span className="inline-block h-4 text-green-400 ml-1">_</span>
             ) : (
