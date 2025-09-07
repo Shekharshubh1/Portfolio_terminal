@@ -1,45 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTypingEffect } from '../../hooks/useTypingEffect'; // Import the hook
 import { fetchGitHubProjects } from '../../services/githubService';
 import { GITHUB_USERNAME } from '../../data/appData';
 
-/**
- * Custom hook for creating a typewriter effect.
- * @param {string} text The text to type out.
- * @param {number} speed The delay between characters in milliseconds.
- * @param {function} onComplete Callback to execute when typing is finished.
- * @returns {string} The currently displayed portion of the text.
- */
-const useTypingEffect = (text, speed = 25, onComplete = () => {}) => {
-  const [displayedText, setDisplayedText] = useState('');
-  const onCompleteRef = useRef(onComplete);
-
-  useEffect(() => {
-    onCompleteRef.current = onComplete;
-  }, [onComplete]);
-
-  useEffect(() => {
-    if (!text) {
-      onCompleteRef.current();
-      return;
-    };
-    
-    setDisplayedText('');
-    let i = 0;
-    const intervalId = setInterval(() => {
-      if (i < text.length) {
-        setDisplayedText(prev => prev + text.charAt(i));
-        i++;
-      } else {
-        clearInterval(intervalId);
-        onCompleteRef.current();
-      }
-    }, speed);
-
-    return () => clearInterval(intervalId);
-  }, [text, speed]);
-
-  return displayedText;
-};
+// A simple helper for creating delays in async functions
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Renders a single line in the terminal, applying the typing effect.
@@ -56,49 +21,50 @@ const TerminalLine = ({ item, onComplete }) => {
   );
 };
 
-
 /**
  * The main Terminal Controller component.
  */
 const TerminalController = ({ files, fileContents, onOpenFile }) => {
-  const [output, setOutput] = useState([]); // Stores completed output lines
+  const [output, setOutput] = useState([]);
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  const commandQueue = useRef([]);
-  const [activeLine, setActiveLine] = useState(null); // The line currently being typed
+  const [suggestion, setSuggestion] = useState('');
+  const [activeLine, setActiveLine] = useState(null);
 
+  const commandQueue = useRef([]);
   const terminalRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Focus input on initial render
+  // --- Effects ---
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Scroll to bottom whenever output changes
+  // Scrolls to bottom on new completed output or when a new line starts typing
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
   }, [output, activeLine]);
-  
-  // This callback is triggered when a line finishes typing
-  const handleLineComplete = useCallback(() => {
+
+  // Continuously scrolls to bottom WHILE a line is actively typing
+  useEffect(() => {
     if (activeLine) {
-      setOutput(prev => [...prev, activeLine]);
-      setActiveLine(null); // Ready for the next line in the queue
+      const interval = setInterval(() => {
+        if (terminalRef.current) {
+          terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+        }
+      }, 50);
+      return () => clearInterval(interval);
     }
   }, [activeLine]);
-
-  // Processes the command queue whenever the terminal is not busy
+  
   const processQueue = useCallback(() => {
     if (commandQueue.current.length > 0 && !activeLine) {
       const nextItem = commandQueue.current.shift();
-      
-      // Items marked as 'instant' are added directly to output without typing
       if (nextItem.instant) {
         setOutput(prev => [...prev, nextItem]);
       } else {
@@ -107,23 +73,55 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
     }
   }, [activeLine]);
 
-  // Interval to check and process the queue
   useEffect(() => {
     const interval = setInterval(processQueue, 100);
     return () => clearInterval(interval);
   }, [processQueue]);
 
-  // Lock the input while a line is being typed or the queue is not empty
   useEffect(() => {
     setIsProcessing(!!activeLine || commandQueue.current.length > 0);
   }, [activeLine, output]);
 
-  // --- Command Execution Logic ---
+  // --- Handlers ---
+
+  const handleLineComplete = useCallback(() => {
+    if (activeLine) {
+      setOutput(prev => [...prev, activeLine]);
+      setActiveLine(null);
+    }
+  }, [activeLine]);
+
+  const handleCommandChange = (e) => {
+    const value = e.target.value;
+    setCommand(value);
+
+    if (value.trim() === '') {
+      setSuggestion('');
+      return;
+    }
+
+    const possibleCommands = ['help', 'about', 'projects', 'contact', 'clear', 'ls', 'cat '];
+    const commandMatch = possibleCommands.find(c => c.startsWith(value.toLowerCase()));
+
+    if (commandMatch && commandMatch !== value) {
+      setSuggestion(commandMatch);
+    } else if (value.toLowerCase().startsWith('cat ') && value.length >= 4) {
+      const partialFilename = value.substring(4);
+      const fileMatch = files.find(f => f.name.startsWith(partialFilename.toLowerCase()));
+      if (fileMatch) {
+        setSuggestion(`cat ${fileMatch.name}`);
+      } else {
+        setSuggestion('');
+      }
+    } else {
+      setSuggestion('');
+    }
+  };
+
   const executeCommand = (cmd) => {
     const trimmed = cmd.trim();
 
-    // Add user's command to output instantly
-    commandQueue.current.push({ 
+    commandQueue.current.push({
       content: `guest@portfolio:~$ ${trimmed}`,
       color: 'text-green-400',
       instant: true
@@ -165,21 +163,30 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
         break;
 
       case 'clear':
-        setOutput([]); // Direct state manipulation, bypasses queue
+        setOutput([]);
         break;
       
       case 'projects':
-        commandQueue.current.push({ color: 'text-blue-400', content: 'Fetching projects from GitHub...', instant: true });
-        // Use a small delay to ensure the "Fetching..." message renders before the async operation
-        setTimeout(async () => {
+        (async () => {
+          commandQueue.current.push({ color: 'text-blue-400', content: 'Connecting to api.github.com...', instant: true });
+          await sleep(400);
+          commandQueue.current.push({ color: 'text-blue-400', content: 'Authenticating session...', instant: true });
+          await sleep(600);
+          commandQueue.current.push({ color: 'text-blue-400', content: 'Parsing repository data...', instant: true });
+          await sleep(300);
+
           try {
-            const fetchedProjects = await fetchGitHubProjects(GITHUB_USERNAME);
-            const projectList = fetchedProjects.map(p => `  - ${p.title}\n    ${p.repoUrl}`).join('\n');
-            commandQueue.current.push({ color: 'text-purple-300', content: `Found ${fetchedProjects.length} projects:\n${projectList}` });
+            const { projects } = await fetchGitHubProjects(GITHUB_USERNAME);
+            if (projects && projects.length > 0) {
+              const projectList = projects.map(p => `  - ${p.title}\n    ${p.repoUrl}`).join('\n');
+              commandQueue.current.push({ color: 'text-purple-300', content: `Found ${projects.length} projects:\n${projectList}` });
+            } else {
+              commandQueue.current.push({ color: 'text-yellow-300', content: 'No public projects found.' });
+            }
           } catch(err) {
             commandQueue.current.push({ color: 'text-red-400', content: `Error: Failed to fetch projects. ${err.message}` });
           }
-        }, 100);
+        })();
         break;
 
       default:
@@ -188,9 +195,15 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
     }
   };
 
-  // --- Keyboard Input Handling ---
   const handleKeyDown = (e) => {
-    if (isProcessing && e.key !== 'Tab') return; // Allow tabbing out
+    if (isProcessing && e.key !== 'Tab') return;
+
+    if (e.key === 'Tab' && suggestion) {
+      e.preventDefault();
+      setCommand(suggestion);
+      setSuggestion('');
+      return;
+    }
 
     if (e.key === 'Enter') {
       executeCommand(command);
@@ -226,16 +239,31 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
           {activeLine && <TerminalLine item={activeLine} onComplete={handleLineComplete} />}
         </div>
       </div>
+      
       <div className="border-t border-gray-600 p-2 bg-[#1a1a1a]">
         <div className="relative flex items-center font-mono text-sm">
           <span className="text-green-400 mr-2 flex-shrink-0">guest@portfolio:~$</span>
-          <span className="text-white whitespace-pre">{command}</span>
-          {!isProcessing && <span className="inline-block w-2.5 h-4 bg-green-400 animate-pulse"></span>}
+          <div className="relative flex-1 flex items-center">
+            <span className="text-white whitespace-pre">{command}</span>
+
+            {suggestion && command && (
+              <span className="text-gray-600 whitespace-pre absolute left-0 top-0 pointer-events-none">
+                <span className="invisible">{command}</span>{suggestion.substring(command.length)}
+              </span>
+            )}
+            
+            {isProcessing ? (
+              <span className="inline-block h-4 text-green-400 ml-1">_</span>
+            ) : (
+              <span className="inline-block w-2.5 h-4 bg-green-400 animate-blink ml-1"></span>
+            )}
+          </div>
+
           <input
             ref={inputRef}
             type="text"
             value={command}
-            onChange={(e) => setCommand(e.target.value)}
+            onChange={handleCommandChange}
             onKeyDown={handleKeyDown}
             className="absolute inset-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
             spellCheck={false}

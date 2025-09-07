@@ -34,9 +34,10 @@ export const useTypingEffect = (text, speed = 80, onComplete = () => {}) => {
         // --- Improvement: Add extra delay for punctuation ---
         // This makes the typing feel more natural and less robotic.
         const char = textRef.current.charAt(progress - 1);
-        if (',.\n'.includes(char)) {
+        if ('.'.includes(char)) {
             // By resetting the start time, we create a pause before the next character appears.
-            startTime = timestamp -500 + Math.random() * 100;
+            startTime = timestamp + 50 - (Math.random() * 20);
+            
         }
 
         setDisplayedText(textRef.current.slice(0, progress));
