@@ -8,7 +8,7 @@ import { useState, useEffect, useRef } from 'react';
  * @param {function} onComplete - A callback function to run when typing is finished.
  * @returns {string} The text displayed so far.
  */
-export const useTypingEffect = (text, speed = 50, onComplete = () => {}) => {
+export const useTypingEffect = (text, speed = 80, onComplete = () => {}) => {
   const [displayedText, setDisplayedText] = useState('');
   const animationFrameRef = useRef(null);
   const textRef = useRef(text);
@@ -36,7 +36,7 @@ export const useTypingEffect = (text, speed = 50, onComplete = () => {}) => {
         const char = textRef.current.charAt(progress - 1);
         if (',.\n'.includes(char)) {
             // By resetting the start time, we create a pause before the next character appears.
-            startTime = timestamp + 150 + Math.random() * 100;
+            startTime = timestamp -500 + Math.random() * 100;
         }
 
         setDisplayedText(textRef.current.slice(0, progress));
