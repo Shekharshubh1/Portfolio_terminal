@@ -1,116 +1,147 @@
-// src/components/terminal/TerminalController.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import OutputLine from './OutputLine';
-import { files } from '../../data/appData';
+import OutputRenderer from './OutputRenderer';
+import { fetchGitHubProjects } from '../../services/githubService';
+// --- FIX IS HERE ---
+// Changed the import path to match your actual filename "appData.js"
+import { GITHUB_USERNAME } from '../../data/appData'; 
 
-const TerminalController = ({ projects, fileContents, onOpenFile }) => {
+// A simple helper function for creating delays
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const TerminalController = ({ files, fileContents, onOpenFile }) => {
   const [output, setOutput] = useState([]);
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [cursorVisible, setCursorVisible] = useState(true);
-  
+  const [isProcessing, setIsProcessing] = useState(false);
+
   const terminalRef = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => {
-    if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-  }, [output]);
-  useEffect(() => {
-    const blinkInterval = setInterval(() => setCursorVisible(prev => !prev), 530);
-    return () => clearInterval(blinkInterval);
+    inputRef.current?.focus();
   }, []);
 
-  const processCommand = (cmd) => {
-    const trimmed = cmd.trim();
-    const newOutput = [...output, { type: 'command', content: `guest@portfolio:~$ ${trimmed}` }];
-
-    if (trimmed) {
-      setHistory(prev => [trimmed, ...prev]);
+  useEffect(() => {
+    if (terminalRef.current) {
+        terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
+  }, [output]);
+
+  const processCommand = async (cmd) => {
+    const trimmed = cmd.trim();
+    if (trimmed === '') return;
+
+    setIsProcessing(true);
+    if (trimmed) setHistory(prev => [trimmed, ...prev]);
     setHistoryIndex(-1);
+    
+    setOutput(prev => [...prev, { 
+        id: Date.now(), 
+        mode: 'instant', 
+        content: `guest@portfolio:~$ ${trimmed}`,
+        color: 'text-green-400'
+    }]);
 
-    const [baseCommand, ...args] = trimmed.split(' ');
-    let response = null;
+    await sleep(100 + Math.random() * 150);
 
-    switch (baseCommand.toLowerCase()) {
+    const [base, ...args] = trimmed.split(' ');
+    
+    switch (base.toLowerCase()) {
       case 'help':
-        response = { type: 'help', content: `Available commands:\n  help          - Show this help message\n  about         - Show about info\n  projects      - List all projects\n  contact       - Show contact details\n  clear         - Clear the terminal\n  ls            - List available files\n  cat <filename> - Open a file` };
+        setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-yellow-300', content: `Available commands:\n  help          - Show this help message\n  about         - Show about info\n  projects      - Fetch and list my projects\n  contact       - Show contact details\n  clear         - Clear the terminal\n  ls            - List available files\n  cat <filename> - Open a file` }]);
         break;
+
       case 'ls':
         const fileList = files.map(f => f.name).join('\n');
-        response = { type: 'system', content: `.\n..\n${fileList}` };
+        setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-blue-400', content: `.\n..\n${fileList}` }]);
         break;
+
       case 'cat':
         const filename = args[0];
         if (filename && fileContents[filename]) {
           onOpenFile(filename);
-          response = { type: 'system', content: `Opening '${filename}'...` };
+          setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-blue-400', content: `Opening '${filename}'...` }]);
         } else {
-          response = { type: 'error', content: `cat: ${filename || ''}: No such file or directory` };
+          setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-red-400', content: `cat: ${filename || 'file'}: No such file or directory` }]);
         }
         break;
+
       case 'about':
-        response = { type: 'system', content: fileContents['about.md'] };
+        setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-blue-400', content: fileContents['about.md'] }]);
         break;
-      case 'projects':
-        const projectList = projects.map(p => `  - ${p.title} (${p.id})`).join('\n');
-        response = { type: 'projects', content: `Found ${projects.length} projects:\n${projectList}\n\nHint: Use 'cat projects.js' to see the data.` };
-        break;
+
       case 'contact':
-        response = { type: 'system', content: fileContents['contact.txt'] };
+         setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-blue-400', content: fileContents['contact.txt'] }]);
         break;
+
       case 'clear':
         setOutput([]);
-        return;
-      case '':
         break;
+        
+      case 'projects':
+        const spinnerId = Date.now();
+        setOutput(prev => [...prev, { id: spinnerId, mode: 'spinner', content: 'Fetching projects from GitHub...' }]);
+        try {
+            const fetchedProjects = await fetchGitHubProjects(GITHUB_USERNAME);
+            const projectList = fetchedProjects.map(p => `  - ${p.title}\n    ${p.repoUrl}`).join('\n');
+            setOutput(prev => prev.map(item => item.id === spinnerId 
+                ? { id: spinnerId, mode: 'instant', color: 'text-purple-300', content: `Found ${fetchedProjects.length} projects:\n${projectList}` }
+                : item
+            ));
+        } catch(err) {
+            setOutput(prev => prev.map(item => item.id === spinnerId 
+                ? { id: spinnerId, mode: 'instant', color: 'text-red-400', content: `Error: Failed to fetch projects. ${err.message}` }
+                : item
+            ));
+        }
+        break;
+
       default:
-        response = { type: 'error', content: `Command not found: '${trimmed}'. Type 'help'.` };
+        setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-red-400', content: `Command not found: '${trimmed}'. Type 'help'.` }]);
         break;
     }
 
-    if (response) {
-      setOutput([...newOutput, response]);
-    } else {
-      setOutput(newOutput);
-    }
+    setIsProcessing(false);
   };
 
   const handleKeyDown = (e) => {
+    if (isProcessing) return;
+
     if (e.key === 'Enter') {
       processCommand(command);
       setCommand('');
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (history.length > 0) {
-        const newIndex = Math.min(historyIndex + 1, history.length - 1);
+      const newIndex = Math.min(historyIndex + 1, history.length - 1);
+      if(newIndex >= 0) {
         setHistoryIndex(newIndex);
         setCommand(history[newIndex]);
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (historyIndex > -1) {
-        const newIndex = Math.max(historyIndex - 1, -1);
-        setHistoryIndex(newIndex);
-        setCommand(newIndex === -1 ? '' : history[newIndex]);
-      }
+      const newIndex = Math.max(historyIndex - 1, -1);
+      setHistoryIndex(newIndex);
+      setCommand(newIndex === -1 ? '' : history[newIndex]);
     }
   };
 
   return (
-    <div className="h-2/5 flex flex-col border-t border-gray-600">
-      <div ref={terminalRef} className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+    <div className="h-full flex flex-col">
+      <div 
+        ref={terminalRef} 
+        className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent" 
+        onClick={() => inputRef.current?.focus()}
+      >
         <div className="space-y-2">
-          {output.map((item, index) => <OutputLine key={index} item={item} />)}
+          {output.map((item) => <OutputRenderer key={item.id} item={item} />)}
         </div>
       </div>
-      <div className="border-t border-gray-600 p-2 bg-[#1a1a1a]" onClick={() => inputRef.current?.focus()}>
+      <div className="border-t border-gray-600 p-2 bg-[#1a1a1a]">
         <div className="relative flex items-center font-mono text-sm">
           <span className="text-green-400 mr-2 flex-shrink-0">guest@portfolio:~$</span>
           <span className="text-white whitespace-pre">{command}</span>
-          <span className={`inline-block w-2.5 h-4 bg-green-400 ${cursorVisible ? 'opacity-100' : 'opacity-0'}`}></span>
+          <span className={`inline-block w-2.5 h-4 bg-green-400 ${isProcessing ? 'opacity-0' : 'animate-pulse'}`}></span>
           <input
             ref={inputRef}
             type="text"
@@ -120,6 +151,7 @@ const TerminalController = ({ projects, fileContents, onOpenFile }) => {
             className="absolute inset-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
             spellCheck={false}
             autoComplete="off"
+            disabled={isProcessing}
           />
         </div>
       </div>
@@ -128,3 +160,4 @@ const TerminalController = ({ projects, fileContents, onOpenFile }) => {
 };
 
 export default TerminalController;
+

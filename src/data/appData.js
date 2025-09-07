@@ -25,8 +25,8 @@ I'm a full-stack developer passionate about building elegant, scalable applicati
 • DevOps: Docker, AWS, Vercel`,
   'contact.txt': `Let's connect! 🚀
 
-📧 Email: shekharshubh1@gmail.com
-🔗 LinkedIn: linkedin.com/in/shubham-shekhar-24b455178/
+📧 Email: subhanshu.email@gmail.com
+🔗 LinkedIn: linkedin.com/in/subhanshu-shekhar/
 🐙 GitHub: github.com/${GITHUB_USERNAME}`,
   'projects.js': `// Fetching projects...`
 };
