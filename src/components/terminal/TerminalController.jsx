@@ -1,120 +1,204 @@
-import React, { useState, useEffect, useRef } from 'react';
-import OutputRenderer from './OutputRenderer';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchGitHubProjects } from '../../services/githubService';
-// --- FIX IS HERE ---
-// Changed the import path to match your actual filename "appData.js"
-import { GITHUB_USERNAME } from '../../data/appData'; 
+import { GITHUB_USERNAME } from '../../data/appData';
 
-// A simple helper function for creating delays
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+/**
+ * Custom hook for creating a typewriter effect.
+ * @param {string} text The text to type out.
+ * @param {number} speed The delay between characters in milliseconds.
+ * @param {function} onComplete Callback to execute when typing is finished.
+ * @returns {string} The currently displayed portion of the text.
+ */
+const useTypingEffect = (text, speed = 25, onComplete = () => {}) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const onCompleteRef = useRef(onComplete);
 
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    if (!text) {
+      onCompleteRef.current();
+      return;
+    };
+    
+    setDisplayedText('');
+    let i = 0;
+    const intervalId = setInterval(() => {
+      if (i < text.length) {
+        setDisplayedText(prev => prev + text.charAt(i));
+        i++;
+      } else {
+        clearInterval(intervalId);
+        onCompleteRef.current();
+      }
+    }, speed);
+
+    return () => clearInterval(intervalId);
+  }, [text, speed]);
+
+  return displayedText;
+};
+
+/**
+ * Renders a single line in the terminal, applying the typing effect.
+ */
+const TerminalLine = ({ item, onComplete }) => {
+  const displayedText = useTypingEffect(item.content || '', 20, onComplete);
+  const isTyping = displayedText !== item.content;
+
+  return (
+    <div className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${item.color || 'text-gray-300'}`}>
+      {displayedText}
+      {isTyping && <span className="inline-block w-2 h-4 bg-green-400 ml-1 animate-pulse" />}
+    </div>
+  );
+};
+
+
+/**
+ * The main Terminal Controller component.
+ */
 const TerminalController = ({ files, fileContents, onOpenFile }) => {
-  const [output, setOutput] = useState([]);
+  const [output, setOutput] = useState([]); // Stores completed output lines
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  const commandQueue = useRef([]);
+  const [activeLine, setActiveLine] = useState(null); // The line currently being typed
 
   const terminalRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Focus input on initial render
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
+  // Scroll to bottom whenever output changes
   useEffect(() => {
     if (terminalRef.current) {
-        terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [output]);
+  }, [output, activeLine]);
+  
+  // This callback is triggered when a line finishes typing
+  const handleLineComplete = useCallback(() => {
+    if (activeLine) {
+      setOutput(prev => [...prev, activeLine]);
+      setActiveLine(null); // Ready for the next line in the queue
+    }
+  }, [activeLine]);
 
-  const processCommand = async (cmd) => {
+  // Processes the command queue whenever the terminal is not busy
+  const processQueue = useCallback(() => {
+    if (commandQueue.current.length > 0 && !activeLine) {
+      const nextItem = commandQueue.current.shift();
+      
+      // Items marked as 'instant' are added directly to output without typing
+      if (nextItem.instant) {
+        setOutput(prev => [...prev, nextItem]);
+      } else {
+        setActiveLine(nextItem);
+      }
+    }
+  }, [activeLine]);
+
+  // Interval to check and process the queue
+  useEffect(() => {
+    const interval = setInterval(processQueue, 100);
+    return () => clearInterval(interval);
+  }, [processQueue]);
+
+  // Lock the input while a line is being typed or the queue is not empty
+  useEffect(() => {
+    setIsProcessing(!!activeLine || commandQueue.current.length > 0);
+  }, [activeLine, output]);
+
+  // --- Command Execution Logic ---
+  const executeCommand = (cmd) => {
     const trimmed = cmd.trim();
+
+    // Add user's command to output instantly
+    commandQueue.current.push({ 
+      content: `guest@portfolio:~$ ${trimmed}`,
+      color: 'text-green-400',
+      instant: true
+    });
+
     if (trimmed === '') return;
 
-    setIsProcessing(true);
-    if (trimmed) setHistory(prev => [trimmed, ...prev]);
+    setHistory(prev => [trimmed, ...prev.filter(h => h !== trimmed)]);
     setHistoryIndex(-1);
-    
-    setOutput(prev => [...prev, { 
-        id: Date.now(), 
-        mode: 'instant', 
-        content: `guest@portfolio:~$ ${trimmed}`,
-        color: 'text-green-400'
-    }]);
-
-    await sleep(100 + Math.random() * 150);
 
     const [base, ...args] = trimmed.split(' ');
     
     switch (base.toLowerCase()) {
       case 'help':
-        setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-yellow-300', content: `Available commands:\n  help          - Show this help message\n  about         - Show about info\n  projects      - Fetch and list my projects\n  contact       - Show contact details\n  clear         - Clear the terminal\n  ls            - List available files\n  cat <filename> - Open a file` }]);
+        commandQueue.current.push({ color: 'text-yellow-300', content: `Available commands:\n  help          - Show this help message\n  about         - Show about info\n  projects      - Fetch and list my projects\n  contact       - Show contact details\n  clear         - Clear the terminal\n  ls            - List available files\n  cat <filename> - Open a file` });
         break;
 
       case 'ls':
         const fileList = files.map(f => f.name).join('\n');
-        setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-blue-400', content: `.\n..\n${fileList}` }]);
+        commandQueue.current.push({ color: 'text-blue-400', content: `.\n..\n${fileList}`, instant: true });
         break;
 
       case 'cat':
         const filename = args[0];
         if (filename && fileContents[filename]) {
           onOpenFile(filename);
-          setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-blue-400', content: `Opening '${filename}'...` }]);
+          commandQueue.current.push({ color: 'text-blue-400', content: `Opening '${filename}'...`, instant: true });
         } else {
-          setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-red-400', content: `cat: ${filename || 'file'}: No such file or directory` }]);
+          commandQueue.current.push({ color: 'text-red-400', content: `cat: ${filename || 'file'}: No such file or directory`, instant: true });
         }
         break;
 
       case 'about':
-        setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-blue-400', content: fileContents['about.md'] }]);
+        commandQueue.current.push({ color: 'text-cyan-300', content: fileContents['about.md'] });
         break;
 
       case 'contact':
-         setOutput(prev => [...prev, { id: Date.now(), mode: 'typewriter', color: 'text-blue-400', content: fileContents['contact.txt'] }]);
+        commandQueue.current.push({ color: 'text-emerald-300', content: fileContents['contact.txt'] });
         break;
 
       case 'clear':
-        setOutput([]);
+        setOutput([]); // Direct state manipulation, bypasses queue
         break;
-        
+      
       case 'projects':
-        const spinnerId = Date.now();
-        setOutput(prev => [...prev, { id: spinnerId, mode: 'spinner', content: 'Fetching projects from GitHub...' }]);
-        try {
+        commandQueue.current.push({ color: 'text-blue-400', content: 'Fetching projects from GitHub...', instant: true });
+        // Use a small delay to ensure the "Fetching..." message renders before the async operation
+        setTimeout(async () => {
+          try {
             const fetchedProjects = await fetchGitHubProjects(GITHUB_USERNAME);
             const projectList = fetchedProjects.map(p => `  - ${p.title}\n    ${p.repoUrl}`).join('\n');
-            setOutput(prev => prev.map(item => item.id === spinnerId 
-                ? { id: spinnerId, mode: 'instant', color: 'text-purple-300', content: `Found ${fetchedProjects.length} projects:\n${projectList}` }
-                : item
-            ));
-        } catch(err) {
-            setOutput(prev => prev.map(item => item.id === spinnerId 
-                ? { id: spinnerId, mode: 'instant', color: 'text-red-400', content: `Error: Failed to fetch projects. ${err.message}` }
-                : item
-            ));
-        }
+            commandQueue.current.push({ color: 'text-purple-300', content: `Found ${fetchedProjects.length} projects:\n${projectList}` });
+          } catch(err) {
+            commandQueue.current.push({ color: 'text-red-400', content: `Error: Failed to fetch projects. ${err.message}` });
+          }
+        }, 100);
         break;
 
       default:
-        setOutput(prev => [...prev, { id: Date.now(), mode: 'instant', color: 'text-red-400', content: `Command not found: '${trimmed}'. Type 'help'.` }]);
+        commandQueue.current.push({ color: 'text-red-400', content: `Command not found: '${trimmed}'. Type 'help'.`, instant: true });
         break;
     }
-
-    setIsProcessing(false);
   };
 
+  // --- Keyboard Input Handling ---
   const handleKeyDown = (e) => {
-    if (isProcessing) return;
+    if (isProcessing && e.key !== 'Tab') return; // Allow tabbing out
 
     if (e.key === 'Enter') {
-      processCommand(command);
+      executeCommand(command);
       setCommand('');
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       const newIndex = Math.min(historyIndex + 1, history.length - 1);
-      if(newIndex >= 0) {
+      if (newIndex >= 0) {
         setHistoryIndex(newIndex);
         setCommand(history[newIndex]);
       }
@@ -122,26 +206,31 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       e.preventDefault();
       const newIndex = Math.max(historyIndex - 1, -1);
       setHistoryIndex(newIndex);
-      setCommand(newIndex === -1 ? '' : history[newIndex]);
+      setCommand(newIndex === -1 ? '' : (history[newIndex] || ''));
     }
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-[#1e1e1e]">
       <div 
         ref={terminalRef} 
         className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent" 
         onClick={() => inputRef.current?.focus()}
       >
-        <div className="space-y-2">
-          {output.map((item) => <OutputRenderer key={item.id} item={item} />)}
+        <div className="space-y-1">
+          {output.map((item, index) => (
+            <div key={index} className={`whitespace-pre-wrap font-mono text-sm leading-relaxed ${item.color || 'text-gray-300'}`}>
+              {item.content}
+            </div>
+          ))}
+          {activeLine && <TerminalLine item={activeLine} onComplete={handleLineComplete} />}
         </div>
       </div>
       <div className="border-t border-gray-600 p-2 bg-[#1a1a1a]">
         <div className="relative flex items-center font-mono text-sm">
           <span className="text-green-400 mr-2 flex-shrink-0">guest@portfolio:~$</span>
           <span className="text-white whitespace-pre">{command}</span>
-          <span className={`inline-block w-2.5 h-4 bg-green-400 ${isProcessing ? 'opacity-0' : 'animate-pulse'}`}></span>
+          {!isProcessing && <span className="inline-block w-2.5 h-4 bg-green-400 animate-pulse"></span>}
           <input
             ref={inputRef}
             type="text"
@@ -160,4 +249,3 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
 };
 
 export default TerminalController;
-
