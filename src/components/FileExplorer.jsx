@@ -1,7 +1,7 @@
 // src/components/FileExplorer.jsx
 import React from 'react';
 import { Folder } from 'lucide-react';
-import { files as fileData } from '../data/appData'; // Renamed to avoid conflict
+import { files as fileData } from '../data/appData'; 
 
 const FileExplorer = ({ activeTabId, onFileClick, className = '' }) => {
   return (
