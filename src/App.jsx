@@ -24,6 +24,9 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState('README.md');
   const [fileContents, setFileContents] = useState(initialFileContents);
 
+  // Pre-load the glitch sound for better performance
+  const glitchSound = React.useMemo(() => new Audio('/sounds/glitch.mp3'), []);
+
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -37,16 +40,25 @@ export default function App() {
     };
     loadProjects();
   }, []);
-
+ 
+  // Boot sequence handler with glitching effects
   const handleBootComplete = useCallback(() => {
-    setTimeout(() => setUiVisibility('opacity-0'), 0);
-    setTimeout(() => setUiVisibility('opacity-100'), 80);
-    setTimeout(() => setUiVisibility('opacity-0'), 160);
+    const playGlitch = () => {
+      glitchSound.currentTime = 0;
+      glitchSound.play().catch(e => console.error("Error playing sound:", e));
+    };
+
+    playGlitch();
+    setTimeout(() => { setUiVisibility('opacity-0'); }, 0);
+    setTimeout(() => setUiVisibility('opacity-100'), 200);
+    setTimeout(() => { setUiVisibility('opacity-0');}, 400);
+    setTimeout(() => setUiVisibility('opacity-100'), 600);
+    setTimeout(() => { setUiVisibility('opacity-0');}, 800);
     setTimeout(() => {
       setUiVisibility('opacity-100');
       setIsBooting(false);
-    }, 240);
-  }, []);
+    }, 1000);
+  }, [glitchSound]);
 
   const handleFileClick = (fileId) => {
     if (!tabs.some(tab => tab.id === fileId)) {
@@ -130,4 +142,3 @@ export default function App() {
     </div>
   );
 }
-

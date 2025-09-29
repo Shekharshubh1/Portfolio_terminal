@@ -177,11 +177,11 @@ const TerminalController = ({ files, fileContents, onOpenFile }) => {
       case 'projects':
         (async () => {
           commandQueue.current.push({ color: 'text-blue-400', content: 'Connecting to api.github.com...', instant: true });
-          await sleep(400);
+          await sleep(200);
           commandQueue.current.push({ color: 'text-blue-400', content: 'Authenticating session...', instant: true });
-          await sleep(600);
+          await sleep(400);
           commandQueue.current.push({ color: 'text-blue-400', content: 'Parsing repository data...', instant: true });
-          await sleep(300);
+          await sleep(200);
 
           try {
             const { projects } = await fetchGitHubProjects(GITHUB_USERNAME);

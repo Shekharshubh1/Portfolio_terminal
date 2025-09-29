@@ -8,56 +8,46 @@ import { useState, useEffect, useRef } from 'react';
  * @param {function} onComplete - A callback function to run when typing is finished.
  * @returns {string} The text displayed so far.
  */
-export const useTypingEffect = (text, speed = 80, onComplete = () => {}) => {
+export const useTypingEffect = (text, speed = 25, onComplete = () => {}) => {
   const [displayedText, setDisplayedText] = useState('');
-  const animationFrameRef = useRef(null);
+  const timeoutRef = useRef(null);
   const textRef = useRef(text);
   textRef.current = text; // Keep ref updated with the latest text to avoid stale closures
 
   useEffect(() => {
     if (!text) return;
     setDisplayedText(''); // Reset on text change
-    
-    let startTime = null;
-    let progress = 0;
-    
-    const animate = (timestamp) => {
-      if (!startTime) startTime = timestamp;
-      const elapsedTime = timestamp - startTime;
 
-      // Calculate how many characters should be visible based on the base speed
-      const expectedProgress = Math.floor(elapsedTime / speed);
+    let currentIndex = 0;
 
-      if (progress < expectedProgress && progress < textRef.current.length) {
-        progress++;
+    const typeCharacter = () => {
+      if (currentIndex < textRef.current.length) {
+        const char = textRef.current.charAt(currentIndex);
+        setDisplayedText((prev) => prev + char);
+        currentIndex++;
 
-        // --- Improvement: Add extra delay for punctuation ---
-        // This makes the typing feel more natural and less robotic.
-        const char = textRef.current.charAt(progress - 1);
-        if ('.'.includes(char)) {
-            // By resetting the start time, we create a pause before the next character appears.
-            startTime = timestamp + 50 - (Math.random() * 20);
-            
+        // --- Improved Delay Logic ---
+        let delay = speed;
+        // Add a small, controlled pause for punctuation to keep rhythm but avoid long delays.
+        if (',.?!'.includes(char)) {
+          delay += 120; // Add a 120ms pause for punctuation
         }
 
-        setDisplayedText(textRef.current.slice(0, progress));
-      }
-      
-      if (progress < textRef.current.length) {
-        animationFrameRef.current = requestAnimationFrame(animate);
+        timeoutRef.current = setTimeout(typeCharacter, delay);
       } else {
-        if (onComplete) onComplete();
+        onComplete();
       }
     };
 
-    animationFrameRef.current = requestAnimationFrame(animate);
+    // Start the typing effect
+    timeoutRef.current = setTimeout(typeCharacter, speed);
 
     // Cleanup function to cancel the animation when the component unmounts or text changes
     return () => {
-        if(animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-        }
-    }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, [text, speed, onComplete]);
 
   return displayedText;
