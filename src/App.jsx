@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Terminal, Folder, FolderOpen } from 'lucide-react';
 
 // Styles
@@ -24,8 +24,25 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState('README.md');
   const [fileContents, setFileContents] = useState(initialFileContents);
 
-  // Pre-load the glitch sound for better performance
-  const glitchSound = React.useMemo(() => new Audio('/sounds/glitch.mp3'), []);
+  // Pre-load the glitch sound for better performance (Vite-safe URL)
+  const glitchSound = React.useMemo(() => {
+    try {
+      const url = new URL('/sounds/glitch.mp3', import.meta.url).href;
+      return new Audio(url);
+    } catch (e) {
+      return new Audio('/sounds/glitch.mp3');
+    }
+  }, []);
+
+  // Track timeouts so we can clear them if the component unmounts
+  const timersRef = useRef([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(id => clearTimeout(id));
+      timersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -47,17 +64,18 @@ export default function App() {
       glitchSound.currentTime = 0;
       glitchSound.play().catch(e => console.error("Error playing sound:", e));
     };
-
-    playGlitch();
-    setTimeout(() => { setUiVisibility('opacity-0'); }, 0);
-    setTimeout(() => setUiVisibility('opacity-100'), 200);
-    setTimeout(() => { setUiVisibility('opacity-0');}, 400);
-    setTimeout(() => setUiVisibility('opacity-100'), 600);
-    setTimeout(() => { setUiVisibility('opacity-0');}, 800);
-    setTimeout(() => {
+    // Schedule flicker sequence and record timer ids
+  // Flicker sequence: 0 -> hidden, 200 -> visible, 400 -> hidden, 500 -> glitch, 600 -> visible, 800 -> hidden, 1000 -> visible + finish
+  timersRef.current.push(setTimeout(() => { setUiVisibility('opacity-0'); }, 0));
+  timersRef.current.push(setTimeout(() => setUiVisibility('opacity-100'), 200));
+  timersRef.current.push(setTimeout(() => { setUiVisibility('opacity-0'); }, 400));
+  timersRef.current.push(setTimeout(playGlitch, 500)); // Play glitch sound in the middle of the UI flicker
+  timersRef.current.push(setTimeout(() => setUiVisibility('opacity-100'), 600));
+  timersRef.current.push(setTimeout(() => { setUiVisibility('opacity-0'); }, 800));
+    timersRef.current.push(setTimeout(() => {
       setUiVisibility('opacity-100');
       setIsBooting(false);
-    }, 1000);
+    }, 1000));
   }, [glitchSound]);
 
   const handleFileClick = (fileId) => {
